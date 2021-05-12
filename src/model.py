@@ -1,252 +1,412 @@
+from src.arch.module import se_resnet18
+from src.framework import Module
 import torch
 import torch.nn as nn
 from torch.nn import init
 import torch.nn.functional as F
+import torchvision
+import torch.utils.model_zoo as model_zoo
 
-from src.arch.module import Resnet18_encoder, AttUNet_decoder, Attention_pooling
-from src.framework import Module
+
+class VGG16BN(nn.Module):
+    def __init__(self, bg_classifier='none', pretrained=True):
+        super(VGG16BN, self).__init__()
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        model = torchvision.models.vgg16_bn(pretrained)
+
+        self.features = model.features
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.classifier = nn.Linear(in_features=512,
+                                    out_features=out_ch,
+                                    bias=True)
+
+        self.features[0] = nn.Conv2d(5, 64, kernel_size=3, stride=1, padding=1)
+
+        init.kaiming_normal_(self.features[0].weight, a=0, mode='fan_in')
+        init.kaiming_normal_(self.classifier.weight, a=0, mode='fan_in')
+        init.constant_(self.classifier.bias, 0)
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, 512)
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
 
 
-class AUnet(Module):
-    def __init__(self,
-                 mask_type='soft',
-                 img_down=['bilinear', 4],
-                 att_down='avgpool',
-                 img_ch=1,
-                 frozen=''):
-        super(AUnet, self).__init__()
-        img_down[0] = img_down[0].lower()
-        att_down = att_down.lower()
-        self.mask_type = mask_type
-        seghead_ch = 3 if mask_type == 'hard' else 2
+class VGG11BN(nn.Module):
+    def __init__(self, bg_classifier='none', pretrained=True):
+        super(VGG11BN, self).__init__()
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
 
-        if img_down[0] == 'conv':
-            self.downsample = nn.Sequential(
-                nn.Conv2d(img_ch, 64, 16, 8, 4, bias=False),
-                nn.BatchNorm2d(64),
-                nn.ReLU(True),
-            )
-        elif img_down[0] in ['nearest', 'bilinear', 'bicubic']:
-            self.downsample = nn.Sequential(
-                nn.Upsample(scale_factor=1 / img_down[1], mode=img_down[0]),
-                nn.Conv2d(img_ch, 64, 7, 2, 3, bias=False),
-                nn.BatchNorm2d(64),
-                nn.ReLU(True),
+        model = torchvision.models.vgg11_bn(pretrained)
+
+        self.features = model.features
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.classifier = nn.Linear(in_features=512,
+                                    out_features=out_ch,
+                                    bias=True)
+
+        self.features[0] = nn.Conv2d(5, 64, kernel_size=3, stride=1, padding=1)
+
+        init.kaiming_normal_(self.features[0].weight, a=0, mode='fan_in')
+        init.kaiming_normal_(self.classifier.weight, a=0, mode='fan_in')
+        init.constant_(self.classifier.bias, 0)
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, 512)
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class Resnet101(nn.Module):
+    def __init__(self, bg_classifier='none', drop=False, pretrained=True):
+        super(Resnet101, self).__init__()
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        model = torchvision.models.resnet101(pretrained)
+
+        self.features = nn.Sequential(
+            nn.Conv2d(5, 64, kernel_size=7, stride=2, padding=3),
+            model.bn1,
+            model.relu,
+            model.maxpool,
+            model.layer1,
+            model.layer2,
+            model.layer3,
+            model.layer4,
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        if drop:
+            self.classifier = nn.Sequential(
+                nn.Dropout(p=0.2, inplace=False),
+                nn.Linear(in_features=2048, out_features=out_ch, bias=True),
             )
         else:
-            raise ValueError('Unsupported input image downsample type: ' +
-                             img_down)
+            self.classifier = nn.Sequential(
+                nn.Linear(in_features=2048, out_features=out_ch, bias=True), )
 
-        self.seghead = nn.Conv2d(64, seghead_ch, 1, 1, 0)
-        self.linear = nn.Sequential(
-            nn.Dropout2d(p=0.2),
-            nn.Linear(in_features=512, out_features=2, bias=True),
+        init.kaiming_normal_(self.features[0].weight, a=0, mode='fan_in')
+        init.kaiming_normal_(self.classifier[-1].weight, a=0, mode='fan_in')
+        init.constant_(self.classifier[-1].bias, 0)
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, feature.shape[1])
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class Resnet50(nn.Module):
+    def __init__(self, bg_classifier='none', drop=False, pretrained=True):
+        super(Resnet50, self).__init__()
+        self.drop = drop
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        model = torchvision.models.resnet50(pretrained)
+
+        self.features = nn.Sequential(
+            nn.Conv2d(5, 64, kernel_size=7, stride=2, padding=3),
+            model.bn1,
+            model.relu,
+            model.maxpool,
+            model.layer1,
+            model.layer2,
+            model.layer3,
+            model.layer4,
         )
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.classifier = nn.Linear(in_features=2048,
+                                    out_features=out_ch,
+                                    bias=True)
+
+        init.kaiming_normal_(self.features[0].weight, a=0, mode='fan_in')
+        init.kaiming_normal_(self.classifier.weight, a=0, mode='fan_in')
+        init.constant_(self.classifier.bias, 0)
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, feature.shape[1])
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class Resnet34(nn.Module):
+    def __init__(self, bg_classifier='none', pretrained=True):
+        super(Resnet34, self).__init__()
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        model = torchvision.models.resnet34(pretrained)
+
+        self.features = nn.Sequential(
+            nn.Conv2d(5, 64, kernel_size=7, stride=2, padding=3),
+            model.bn1,
+            model.relu,
+            model.maxpool,
+            model.layer1,
+            model.layer2,
+            model.layer3,
+            model.layer4,
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.classifier = nn.Linear(in_features=512,
+                                    out_features=out_ch,
+                                    bias=True)
+
+        init.kaiming_normal_(self.features[0].weight, a=0, mode='fan_in')
+        init.kaiming_normal_(self.classifier.weight, a=0, mode='fan_in')
+        init.constant_(self.classifier.bias, 0)
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, feature.shape[1])
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class Resnet18(nn.Module):
+    def __init__(self, bg_classifier='none', drop=False, pretrained=True):
+        super(Resnet18, self).__init__()
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        model = torchvision.models.resnet18(pretrained)
+
+        self.features = nn.Sequential(
+            nn.Conv2d(5, 64, kernel_size=7, stride=2, padding=3),
+            model.bn1,
+            model.relu,
+            model.maxpool,
+            model.layer1,
+            model.layer2,
+            model.layer3,
+            model.layer4,
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        if drop:
+            self.classifier = nn.Sequential(
+                nn.Dropout(p=0.2, inplace=False),
+                nn.Linear(in_features=512, out_features=out_ch, bias=True),
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.Linear(in_features=512, out_features=out_ch, bias=True), )
+
+        init.kaiming_normal_(self.features[0].weight, a=0, mode='fan_in')
+        init.kaiming_normal_(self.classifier[-1].weight, a=0, mode='fan_in')
+        init.constant_(self.classifier[-1].bias, 0)
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, feature.shape[1])
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class MobileNet(nn.Module):
+    def __init__(self, bg_classifier='none', pretrained=True):
+        super(MobileNet, self).__init__()
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        model = torchvision.models.mobilenet_v2(pretrained)
+
+        self.features = model.features
+        self.features[0] = nn.Conv2d(5, 32, kernel_size=3, stride=2, padding=1)
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=0.2, inplace=False),
+            nn.Linear(in_features=1280, out_features=out_ch, bias=True),
+        )
+
+        init.kaiming_normal_(self.features[0].weight, a=0, mode='fan_in')
+        init.kaiming_normal_(self.classifier[-1].weight, a=0, mode='fan_in')
+        init.constant_(self.classifier[-1].bias, 0)
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, feature.shape[1])
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class Inception(torchvision.models.Inception3):
+    def __init__(self, bg_classifier='none', pretrained=True):
+        super(Inception, self).__init__(num_classes=1000,
+                                        aux_logits=False,
+                                        transform_input=False)
+        url = 'https://download.pytorch.org/models/inception_v3_google-1a9a5a14.pth'
+        if pretrained:
+            self.load_state_dict(model_zoo.load_url(url), strict=False)
+        import scipy.stats as stats
+
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        self.Conv2d_1a_3x3 = nn.Sequential(
+            nn.Conv2d(5, 32, kernel_size=3, stride=2),
+            nn.BatchNorm2d(32, eps=0.001),
+            nn.ReLU(True),
+        )
+        self.fc = nn.Linear(2048, out_ch)
+
+        X = stats.truncnorm(-2, 2, scale=0.1)
+        values = torch.Tensor(X.rvs(self.Conv2d_1a_3x3[0].weight.numel()))
+        values = values.view(self.Conv2d_1a_3x3[0].weight.size())
+        self.Conv2d_1a_3x3[0].weight.data.copy_(values)
+
+        nn.init.constant_(self.Conv2d_1a_3x3[1].weight, 1)
+        nn.init.constant_(self.Conv2d_1a_3x3[1].bias, 0)
+
+        X = stats.truncnorm(-2, 2, scale=0.1)
+        values = torch.Tensor(X.rvs(self.fc.weight.numel()))
+        values = values.view(self.fc.weight.size())
+        self.fc.weight.data.copy_(values)
+
+    def forward(self, x):
+        x = self.Conv2d_1a_3x3(x)
+        x = self.Conv2d_2a_3x3(x)
+        x = self.Conv2d_2b_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Conv2d_3b_1x1(x)
+        x = self.Conv2d_4a_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Mixed_5b(x)
+        x = self.Mixed_5c(x)
+        x = self.Mixed_5d(x)
+        x = self.Mixed_6a(x)
+        x = self.Mixed_6b(x)
+        x = self.Mixed_6c(x)
+        x = self.Mixed_6d(x)
+        x = self.Mixed_6e(x)
+        x = self.Mixed_7a(x)
+        x = self.Mixed_7b(x)
+        x = self.Mixed_7c(x)
+        feature = self.avgpool(x)
+        feature = torch.flatten(feature, 1)
+
+        prediction = F.dropout(feature, training=self.training)
+        # prediction = torch.flatten(prediction, 1)
+        prediction = self.fc(prediction)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class SEnet18(Module):
+    def __init__(self, bg_classifier='none', drop=False, pretrained=True):
+        super(SEnet18, self).__init__()
+        self.bg_classifier = bg_classifier
+        if bg_classifier == 'integration':
+            out_ch = 3
+        elif bg_classifier == 'independence':
+            out_ch = 4
+        else:
+            out_ch = 2
+
+        model = se_resnet18(out_ch)
+
+        self.features = nn.Sequential(
+            nn.Conv2d(5, 64, kernel_size=7, stride=2, padding=3),
+            model.bn1,
+            model.relu,
+            model.maxpool,
+            model.layer1,
+            model.layer2,
+            model.layer3,
+            model.layer4,
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        if drop:
+            self.classifier = nn.Sequential(
+                nn.Dropout(p=0.2, inplace=False),
+                nn.Linear(in_features=512, out_features=out_ch, bias=True),
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.Linear(in_features=512, out_features=out_ch, bias=True), )
 
         self.init_params()
 
-        self.encoder = Resnet18_encoder()
-        self.decoder = AttUNet_decoder()
-
-        self.attpooling = Attention_pooling(mask_type, att_down)
-
-        need_frozen_list = []
-        if frozen.lower() == 'body':
-            need_frozen_list += [x for x in self.downsample.parameters()]
-            need_frozen_list += [x for x in self.encoder.parameters()]
-        elif frozen.lower() == 'seg':
-            need_frozen_list += [x for x in self.downsample.parameters()]
-            need_frozen_list += [x for x in self.encoder.parameters()]
-            need_frozen_list += [x for x in self.decoder.parameters()]
-            need_frozen_list += [x for x in self.seghead.parameters()]
-        elif frozen.lower() == 'dfs':
-            need_frozen_list += [x for x in self.linear.parameters()]
-        if len(need_frozen_list) > 0:
-            for param in need_frozen_list:
-                param.requires_grad = False
-
     def forward(self, input):
-        feature = [None, None, None, None, None]
-        feature[0] = self.downsample(input)
-        feature[1:] = self.encoder(feature[0])
-        mask = self.seghead(self.decoder(*feature))
-        output = self.attpooling(feature[-1], mask)
-        output = self.linear(output)
-
-        return output, mask
-
-
-class BUnet(Module):
-    def __init__(self,
-                 mask_type='soft',
-                 img_down=['bilinear', 4],
-                 att_down='avgpool',
-                 img_ch=1,
-                 frozen=''):
-        super(BUnet, self).__init__()
-        img_down[0] = img_down[0].lower()
-        att_down = att_down.lower()
-        self.mask_type = mask_type
-        seghead_ch = 3 if mask_type == 'hard' else 2
-
-        if img_down[0] == 'conv':
-            self.downsample = nn.Sequential(
-                nn.Conv2d(img_ch, 64, 16, 8, 4, bias=False),
-                nn.BatchNorm2d(64),
-                nn.ReLU(True),
-            )
-        elif img_down[0] in ['nearest', 'bilinear', 'bicubic']:
-            self.downsample = nn.Sequential(
-                nn.Upsample(scale_factor=1 / img_down[1], mode=img_down[0]),
-                nn.Conv2d(img_ch, 64, 7, 2, 3, bias=False),
-                nn.BatchNorm2d(64),
-                nn.ReLU(True),
-            )
-        else:
-            raise ValueError('Unsupported input image downsample type: ' +
-                             img_down)
-
-        self.seghead = nn.Conv2d(64, seghead_ch, 1, 1, 0)
-        self.linear = nn.Sequential(
-            nn.Dropout2d(p=0.2),
-            nn.Linear(in_features=512, out_features=2, bias=True),
-        )
-
-        self.init_params()
-
-        self.encoder = Resnet18_encoder()
-        self.decoder = AttUNet_decoder()
-
-        self.attpooling = nn.AdaptiveAvgPool2d(1)
-
-        need_frozen_list = []
-        if frozen.lower() == 'body':
-            need_frozen_list += [x for x in self.downsample.parameters()]
-            need_frozen_list += [x for x in self.encoder.parameters()]
-        elif frozen.lower() == 'seg':
-            need_frozen_list += [x for x in self.downsample.parameters()]
-            need_frozen_list += [x for x in self.encoder.parameters()]
-            need_frozen_list += [x for x in self.decoder.parameters()]
-            need_frozen_list += [x for x in self.seghead.parameters()]
-        elif frozen.lower() == 'dfs':
-            need_frozen_list += [x for x in self.linear.parameters()]
-        if len(need_frozen_list) > 0:
-            for param in need_frozen_list:
-                param.requires_grad = False
-
-    def forward(self, input):
-        feature = [None, None, None, None, None]
-        feature[0] = self.downsample(input)
-        feature[1:] = self.encoder(feature[0])
-        mask = self.seghead(self.decoder(*feature))
-        output = self.attpooling(feature[-1]).view(feature[-1].shape[0], -1)
-        output = self.linear(output)
-
-        return output, mask
-
-
-class CUnet(Module):
-    def __init__(self,
-                 mask_type='soft',
-                 img_down=['bilinear', 4],
-                 att_down='avgpool',
-                 img_ch=1,
-                 frozen=''):
-        super(CUnet, self).__init__()
-        img_down[0] = img_down[0].lower()
-
-        if img_down[0] == 'conv':
-            self.downsample = nn.Sequential(
-                nn.Conv2d(img_ch, 64, 16, 8, 4, bias=False),
-                nn.BatchNorm2d(64),
-                nn.ReLU(True),
-            )
-        elif img_down[0] in ['nearest', 'bilinear', 'bicubic']:
-            self.downsample = nn.Sequential(
-                nn.Upsample(scale_factor=1 / img_down[1], mode=img_down[0]),
-                nn.Conv2d(img_ch, 64, 7, 2, 3, bias=False),
-                nn.BatchNorm2d(64),
-                nn.ReLU(True),
-            )
-        else:
-            raise ValueError('Unsupported input image downsample type: ' +
-                             img_down)
-
-        self.attpooling = nn.AdaptiveAvgPool2d(1)
-        self.linear = nn.Sequential(
-            nn.Dropout2d(p=0.2),
-            nn.Linear(in_features=512, out_features=2, bias=True),
-        )
-
-        self.init_params()
-
-        self.encoder = Resnet18_encoder()
-
-        need_frozen_list = []
-        if frozen.lower() == 'body':
-            need_frozen_list += [x for x in self.downsample.parameters()]
-            need_frozen_list += [x for x in self.encoder.parameters()]
-        elif frozen.lower() == 'dfs':
-            need_frozen_list += [x for x in self.linear.parameters()]
-        if len(need_frozen_list) > 0:
-            for param in need_frozen_list:
-                param.requires_grad = False
-
-    def forward(self, input):
-        feature = [None, None, None, None, None]
-        feature[0] = self.downsample(input)
-        feature[1:] = self.encoder(feature[0])
-        mask = torch.zeros_like(feature[0])
-        output = self.attpooling(feature[-1]).view(feature[-1].shape[0], -1)
-        output = self.linear(output)
-
-        return output, mask
+        feature = self.features(input)
+        feature = self.avgpool(feature)
+        feature = feature.view(-1, feature.shape[1])
+        prediction = self.classifier(feature)
+        if self.bg_classifier == 'independence':
+            prediction = prediction.view(-1, 2, 2)
+        return {'feature': feature, 'prediction': prediction}
 
 
 if __name__ == "__main__":
-
-    import cv2
-    import time
-    from tqdm import tqdm
-    import numpy as np
-
-    from torch.utils.data import DataLoader
-    from src.dataset import FaceDataset
-
-    # warmup
-    model = CUnet().cuda(2)
-    for _ in tqdm(range(5)):
-        frame = np.random.random((1, 1, 1728, 2352))
-        frame = torch.from_numpy(frame).to(torch.float32).cuda(2)
-        with torch.no_grad():
-            output, mask = model(frame)
-
-    # result = '\n' + '#' * 40 + '\n'
-    # for down1 in [
-    #         # 'conv',
-    #         'nearest',
-    #         'bilinear',
-    #         'bicubic',
-    # ]:
-    #     for down2 in [
-    #             'maxpool',
-    #             'avgpool',
-    #             'nearest',
-    #             'bilinear',
-    #             'bicubic',
-    #     ]:
-    #         val_data = FaceDataset('CASIA-Iris-Distance',
-    #                                mode='test',
-    #                                less_data=0.005)
-    #         val_data_loader = DataLoader(val_data, 1)
-    #         model = AUnet(img_down=down1, att_down=down2).cuda(2)
-    #         all_time = 0
-    #         for data in tqdm(val_data_loader):
-    #             start = time.time()
-    #             frame = data['img'].cuda(2)
-    #             with torch.no_grad():
-    #                 output, mask = model(frame)
-    #             all_time += time.time() - start
-    #         result += '{} {}: {} fps\n'.format(down1, down2,
-    #                                            len(val_data_loader) / all_time)
-    # print(result + '#' * 40 + '\n')
+    input = torch.rand((32, 5, 224, 224))
+    model = VGG11BN('none', False)
+    output = model(input)
+    print([x.shape for x in output.values()])

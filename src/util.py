@@ -45,6 +45,8 @@ class LoadConfig(object):
                 self.__dict__[name] = value
         self.change_setting()
 
+        self.git_hash = os.popen('git rev-parse --short HEAD').read()
+
     def change_setting(self):
         if self.log_name:
             self.log_name = get_datestamp() + '_' + self.log_name
@@ -54,6 +56,7 @@ class LoadConfig(object):
         if self.debug:
             self.save_interval = 1
             self.log_interval = 1
+            self.max_epochs = 2
             self.log_name += '_debug'
         else:
             import warnings
@@ -91,7 +94,7 @@ def get_datestamp():
 
 
 def get_timestamp():
-    return datetime.now().strftime('%H:%M')
+    return datetime.now().strftime('%H:%M:%S')
 
 
 def mkdir(path):

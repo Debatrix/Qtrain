@@ -37,6 +37,9 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
             else:
                 info = str(config) + '#' * 30 + '\n'
             f.write(info)
+        if len(config['git_hash']) > 0:
+            os.system('git archive -o {} HEAD'.format(
+                os.path.join(cp_dir_path, 'latest.zip')))
 
     # visble
     log_writer = None
@@ -56,8 +59,10 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
         model_checkpoint = model.state_dict()
         optimizer_checkpoint = optimizer.state_dict()
         # train
+        model.init_train()
         model.train()
-        epoch_loss = 0
+        # epoch_loss = 0
+        epoch_loss = {}
         try:
             for train_data in tqdm(train_data_loader,
                                    desc='[{}] Epoch'.format(cur_epoch),
@@ -66,11 +71,17 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
                 loss = 0
                 optimizer.zero_grad()
                 loss = model.train_epoch(train_data)
-                epoch_loss += loss['loss'].item()
+                # epoch_loss += loss['loss'].item()
+                for k, v in loss.items():
+                    if k in epoch_loss:
+                        epoch_loss[k] += v.cpu().item()
+                    else:
+                        epoch_loss[k] = v.cpu().item()
                 loss['loss'].backward()
                 optimizer.step()
                 # Don't waste time
                 assert not torch.isnan(loss['loss'])
+            model.train_finish()
         except AssertionError as err:
             error_num += 1
             model.load_state_dict(model_checkpoint)
@@ -86,20 +97,33 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
             continue
         error_num = 0
 
-        train_loss = epoch_loss / len(train_data_loader)
+        train_loss = epoch_loss['loss'] / len(train_data_loader.dataset)
         scheduler.step(train_loss)
 
-        print("[{}] {} Training - loss: {:.4e}".format(cur_epoch,
-                                                       get_timestamp(),
-                                                       train_loss))
+        pinfo = "[{}] {} Training - loss: {:.2e}".format(
+            cur_epoch, get_timestamp(), train_loss)
+        if len(epoch_loss) > 2:
+            for k, v in epoch_loss.items():
+                if k == 'loss':
+                    continue
+                else:
+                    pinfo += ' {}: {:.2e}'.format(
+                        k, v / len(train_data_loader.dataset))
+
+        print(pinfo)
         if config['save_interval'] > 0:
             with open(os.path.join(cp_dir_path, 'output.log'), 'a') as f:
-                f.write("[{}] {} Training - loss: {:.4e}\n".format(
-                    cur_epoch, get_timestamp(), train_loss))
+                f.write(pinfo)
         if config['visible']:
             cur_lr = optimizer.param_groups[0]['lr']
-            log_writer.add_scalar('Train/Loss', train_loss, cur_epoch)
             log_writer.add_scalar('Train/lr', cur_lr, cur_epoch)
+            if len(epoch_loss) > 2:
+                for k, v in epoch_loss.items():
+                    log_writer.add_scalar('Train/' + k.capitalize(),
+                                          v / len(train_data_loader.dataset),
+                                          cur_epoch)
+            else:
+                log_writer.add_scalar('Train/Loss', train_loss, cur_epoch)
 
         # val
         val_save = None
@@ -113,7 +137,7 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
                                      bar_format=tqdm_bar):
                     val_save = model.val_epoch(val_data)
 
-            val_result = evaluation(val_save, len(val_data_loader))
+            val_result = evaluation(val_save, len(val_data_loader.dataset))
 
             val_info = "[{}] {} Val -".format(cur_epoch, get_timestamp())
             for k, v in val_result.items():
@@ -138,7 +162,7 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
                 'save_interval'] == 0:
             save_path = os.path.join(
                 cp_dir_path, '{}_{:.4e}.pth'.format(cur_epoch, train_loss))
-            model.save_checkpoint(save_path, info=str(config))
+            model.save_checkpoint(save_path, info=config.__dict__)
         elif config['save_interval'] == -1:
-            save_path = os.path.join(cp_dir_path, '{}'.format(log_name))
-            model.save_checkpoint(save_path, info=str(config))
+            save_path = os.path.join(cp_dir_path, '{}.pth'.format(log_name))
+            model.save_checkpoint(save_path, info=config.__dict__)
