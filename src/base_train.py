@@ -80,7 +80,7 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
                 loss['loss'].backward()
                 optimizer.step()
                 # Don't waste time
-                assert not torch.isnan(loss['loss'])
+                assert not torch.isnan(loss['loss']), 'Nan!'
             model.train_finish()
         except AssertionError as err:
             error_num += 1
@@ -166,3 +166,4 @@ def train(config, dataloaders, model, optimizers, evaluation, val_plot=None):
         elif config['save_interval'] == -1:
             save_path = os.path.join(cp_dir_path, '{}.pth'.format(log_name))
             model.save_checkpoint(save_path, info=config.__dict__)
+    return model

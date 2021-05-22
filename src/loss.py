@@ -105,39 +105,27 @@ class PredictLoss(nn.Module):
         }
 
 
-class SiameseLoss(nn.Module):
-    def __init__(self,
-                 pred_loss='ce',
-                 feat_loss='cos',
-                 margin=0.0,
-                 alpha=1) -> None:
-        super(SiameseLoss, self).__init__()
-        if feat_loss.lower() == 'cos':
-            self.feat_loss = nn.CosineEmbeddingLoss(margin=margin,
-                                                    reduction='sum')
+class IQALoss(nn.Module):
+    def __init__(self, pred_loss='mse', alpha=1e-3, *args, **kargs) -> None:
+        super(IQALoss, self).__init__()
+        if pred_loss in ['mse', 'l2']:
+            self.pred_loss = nn.MSELoss(reduction='sum')
+        elif pred_loss in ['l1']:
+            self.pred_loss = nn.L1Loss(reduction='sum')
+        elif pred_loss in ['sl1']:
+            self.pred_loss = nn.SmoothL1Loss(reduction='sum')
         else:
-            raise ValueError('Unsupported Loss: ' + feat_loss)
-
-    def _train(self, input):
-
-        feat_loss = self.feat_loss(
-            input['feature1'],
-            input['feature2'],
-            input['flag'],
-        )
-
-        return {
-            'loss': feat_loss,
-            'feat_loss': feat_loss,
-        }
-
-    def _val(self, input):
-        return {}
+            raise ValueError('Unsupported Loss: ' + type)
+        self.mask_loss = nn.CrossEntropyLoss(reduction='sum')
+        self.alpha = alpha
 
     def forward(self, input):
-        if 'flag' in input:
-            loss = self._train(input)
-        else:
-            loss = self._val(input)
-
-        return loss
+        pred_loss = self.pred_loss(input['prediction'], input['dfs'])
+        mask_loss = self.mask_loss(input['heatmap'], input['mask'])
+        mask_loss = mask_loss / (input['mask'].shape[1] *
+                                 input['mask'].shape[2])
+        return {
+            'loss': pred_loss + self.alpha * mask_loss,
+            'pred_loss': pred_loss,
+            'mask_loss': mask_loss
+        }

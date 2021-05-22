@@ -15,8 +15,9 @@ import torchvision.transforms as transforms
 class FaceDataset(data.Dataset):
     def __init__(self,
                  dataset='distance',
-                 mode='train',
+                 mode='qtrain',
                  less_data=False,
+                 dfs=None,
                  **kwargs):
         super(FaceDataset, self).__init__()
 
@@ -52,6 +53,8 @@ class FaceDataset(data.Dataset):
         self.normalize = transforms.Normalize(*meta['face_mean&std'],
                                               inplace=True)
 
+        self.dfs = dfs
+
     def __len__(self) -> int:
         return len(self.info_list)
 
@@ -59,28 +62,40 @@ class FaceDataset(data.Dataset):
         img = Image.open(osp.join(self.dataset_path, info['img']))
         img = self.transform(img)
         img = self.normalize(img)
+        l_loc = np.round(np.array(info['l_loc']) / 4.59375).astype(np.int)
+        r_loc = np.round(np.array(info['r_loc']) / 4.59375).astype(np.int)
 
-        loc = torch.tensor([info['l_loc'], info['r_loc']])
+        # image are resized!
         mask = np.zeros((img.shape[1], img.shape[2]), dtype=np.uint8)
-        mask = cv2.circle(mask, (info['l_loc'][0], info['l_loc'][1]),
-                          info['l_loc'][2], (1, 1, 1), -1)
-        mask = cv2.circle(mask, (info['r_loc'][0], info['r_loc'][1]),
-                          info['r_loc'][2], (2, 2, 2), -1)
+        mask = cv2.circle(mask, (l_loc[0], l_loc[1]), l_loc[2], (1, 1, 1), -1)
+        mask = cv2.circle(mask, (r_loc[0], r_loc[1]), r_loc[2], (2, 2, 2), -1)
         mask = torch.from_numpy(mask)
 
-        return img.to(torch.float), mask.to(torch.long), loc.to(torch.long)
+        l_name = osp.basename(info['l_norm']).split('.')[0]
+        r_name = osp.basename(info['r_norm']).split('.')[0]
+        ename = [l_name, r_name]
+        if self.dfs is not None:
+            l_dfs = self.dfs[l_name] if l_name in self.dfs else 0
+            r_dfs = self.dfs[r_name] if r_name in self.dfs else 0
+            dfs = torch.tensor((l_dfs, r_dfs), dtype=torch.float)
+        else:
+            dfs = torch.tensor((0, 0), dtype=torch.float)
+
+        return img.to(torch.float), mask.to(torch.long), dfs, ename
 
     def __getitem__(self, item):
         info = self.info_list[item]
-        img, mask, loc = self._load_img(info)
-        return {'img': img, 'mask': mask, 'loc': loc}
+        img, mask, dfs, ename = self._load_img(info)
+        return {'img': img, 'mask': mask, 'dfs': dfs, 'ename': ename}
 
 
 class EyeDataset(data.Dataset):
     def __init__(self,
                  dataset='distance',
-                 mode='train',
+                 mode='rtrain',
                  less_data=False,
+                 dfs=None,
+                 weight='gaussian',
                  **kwargs):
         super(EyeDataset, self).__init__()
 
@@ -92,23 +107,28 @@ class EyeDataset(data.Dataset):
         with open(meta_path, 'r') as f:
             meta = json.load(f)
 
+        self.num_classes = meta['iris_label_num']
         self.info_list = []
-        for info in meta['info'].values():
+        for k, info in meta['info'].items():
             if info['label'] in meta['protocol'][mode]:
                 name = osp.basename(info['l_norm']).split('.')[0]
                 einfo = {
                     'name': name,
+                    'face': k,
                     'norm': info['l_norm'],
                     'label': meta['iris_label'][name]
                 }
-                self.info_list.append(einfo)
+                if osp.exists(osp.join(self.dataset_path, einfo['norm'])):
+                    self.info_list.append(einfo)
                 name = osp.basename(info['r_norm']).split('.')[0]
                 einfo = {
                     'name': name,
+                    'face': k,
                     'norm': info['r_norm'],
                     'label': meta['iris_label'][name]
                 }
-                self.info_list.append(einfo)
+                if osp.exists(osp.join(self.dataset_path, einfo['norm'])):
+                    self.info_list.append(einfo)
         random.shuffle(self.info_list)
 
         if less_data:
@@ -127,6 +147,18 @@ class EyeDataset(data.Dataset):
             transforms.ToTensor(),
         ])
 
+        if dfs is not None and weight is not None:
+            self.dfs = dfs
+            if weight == 'gaussian':
+                d = np.array([x for x in dfs.values()])
+                self.weight_fun = lambda x: ((1 / (np.power(
+                    2 * np.pi, 0.5) * d.std())) * np.exp(-0.5 * np.power(
+                        (x - d.mean()) / d.std(), 2)))
+            else:
+                self.weight_fun = None
+        else:
+            self.dfs = None
+
     def __len__(self) -> int:
         return len(self.info_list)
 
@@ -134,25 +166,40 @@ class EyeDataset(data.Dataset):
         img = Image.open(osp.join(self.dataset_path, info['norm']))
         img = self.transform(img)
 
-        label = torch.tensor(info['label'])
+        label = torch.tensor(info['label'], dtype=torch.long)
         name = info['name']
 
-        return img.to(torch.float), label.to(torch.long), name
+        if self.dfs is not None and self.weight is not None:
+            weight = self.weight_fun(self.dfs[name])
+        else:
+            weight = torch.tensor(-1, dtype=torch.float)
+
+        return img.to(torch.float), label, weight, name
 
     def __getitem__(self, item):
         info = self.info_list[item]
-        img, label, name = self._load_img(info)
-        return {'img': img, 'name': name, 'label': label}
+        img, label, weight, name = self._load_img(info)
+        return {'img': img, 'name': name, 'label': label, 'weight': weight}
 
 
 if __name__ == "__main__":
     from tqdm import tqdm
     from torch.utils.data import DataLoader
-    data = EyeDataset(mode='val', dataset='distance', less_data=0.1)
+    data = FaceDataset(mode='qtrain', dataset='distance', less_data=False)
 
-    for x in data:
+    for x in tqdm(data):
+        fname = []
         try:
-            # print(x['img'].shape, x['name'], x['label'])
+            fname += x['ename']
+            pass
+        except Exception as e:
+            print(e)
+    data = FaceDataset(mode='qtrain', dataset='distance', less_data=False)
+
+    for x in tqdm(data):
+        fname = []
+        try:
+            fname += x['ename']
             pass
         except Exception as e:
             print(e)
