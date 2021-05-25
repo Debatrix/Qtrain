@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.dataset import EyeDataset
 from src.rmodel import *
 from src.evaluation import r_evaluation, r_val_plot
-from run.rtrain import set_model
+from run.rtrain import set_r_model
 
 
 def test(config, checkpoint):
@@ -38,7 +38,7 @@ def test(config, checkpoint):
 
     # model and criterion
     print('Load model')
-    model = set_model(checkpoint['cfg'])
+    model = set_r_model(checkpoint['cfg'])
     cp_config = model.load_checkpoint(checkpoint)
     model.to_device(config['device'])
 

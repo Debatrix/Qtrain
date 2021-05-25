@@ -466,7 +466,7 @@ class Resnet18_encoder(nn.Module):
         model = torchvision.models.resnet18(pretrained)
 
         self.layer0 = nn.Sequential(
-            nn.Conv2d(1, 64, 16, 8, 4, bias=False),
+            nn.Conv2d(1, 64, 1, 1, 0, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(True),
         )

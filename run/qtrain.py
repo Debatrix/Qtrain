@@ -4,11 +4,9 @@ from torch.utils.data import DataLoader
 
 from src.base_train import train as base_train
 from src.dataset import EyeDataset, FaceDataset
-from src import qmodel
-from src.framework import IQAnModel
-from src.loss import IQALoss
 from src.evaluation import r_evaluation, q_val_plot, q_evaluation
-from run.rtrain import set_model as set_r_model
+
+from run.set_model import set_q_model, set_r_model
 
 
 def prepare(config):
@@ -102,23 +100,6 @@ def set_dataloaders(config, dfs):
     return (train_data_loader, val_data_loader)
 
 
-def set_model(config):
-
-    # model
-    if config['model_name'].lower() == 'resunet':
-        model = qmodel.ResUnet()
-    elif config['model_name'].lower() == 'unet':
-        model = qmodel.Unet()
-    else:
-        raise ValueError('Unsupported model: ' + config['model_name'])
-
-    # criterion
-    criterion = IQALoss(pred_loss=config['pred_loss'], alpha=config['alpha'])
-    model = IQAnModel(model, criterion)
-
-    return model
-
-
 def train(config):
     dfs = prepare(config)
 
@@ -127,7 +108,7 @@ def train(config):
     dataloaders = set_dataloaders(config, dfs)
 
     # model and
-    model = set_model(config)
+    model = set_q_model(config)
 
     # optimizer and scheduler
     params = []
@@ -143,30 +124,30 @@ def train(config):
         else:
             params += [{'params': value, 'lr': config['lr']}]
 
-    # optimizer = torch.optim.Adam(
-    #     params,
-    #     lr=config['lr'],
-    #     weight_decay=config['weight_decay'],
-    # )
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    #     optimizer,
-    #     'min',
-    #     factor=0.5,
-    #     patience=config['log_interval'] * 2,
-    #     verbose=True)
-
-    optimizer = torch.optim.SGD(
+    optimizer = torch.optim.Adam(
         params,
         lr=config['lr'],
-        momentum=0.9,
+        weight_decay=config['weight_decay'],
     )
-    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 20, 0.5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         'min',
         factor=0.5,
         patience=config['log_interval'] * 2,
         verbose=True)
+
+    # optimizer = torch.optim.SGD(
+    #     params,
+    #     lr=config['lr'],
+    #     momentum=0.9,
+    # )
+    # # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 20, 0.5)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #     optimizer,
+    #     'min',
+    #     factor=0.5,
+    #     patience=config['log_interval'] * 2,
+    #     verbose=True)
 
     optimizers = (optimizer, scheduler)
 

@@ -86,19 +86,24 @@ class PredictLoss(nn.Module):
     def __init__(self, pred_loss='ce', *args, **kargs) -> None:
         super(PredictLoss, self).__init__()
 
-        if pred_loss.lower() == 'ce':
-            self.pred_loss = nn.CrossEntropyLoss(reduction='sum')
-        elif pred_loss.lower() == 'arcface':
-            self.pred_loss = AngularPenaltySMLoss(loss_type='arcface')
-        elif pred_loss.lower() == 'sphereface':
-            self.pred_loss = AngularPenaltySMLoss(loss_type='sphereface')
-        elif pred_loss.lower() == 'cosface':
-            self.pred_loss = AngularPenaltySMLoss(loss_type='cosface')
-        else:
-            raise ValueError('Unsupported Loss: ' + pred_loss)
+        # if pred_loss.lower() == 'ce':
+        #     self.pred_loss = nn.CrossEntropyLoss(reduction='sum')
+        # elif pred_loss.lower() == 'arcface':
+        #     self.pred_loss = AngularPenaltySMLoss(loss_type='arcface')
+        # elif pred_loss.lower() == 'sphereface':
+        #     self.pred_loss = AngularPenaltySMLoss(loss_type='sphereface')
+        # elif pred_loss.lower() == 'cosface':
+        #     self.pred_loss = AngularPenaltySMLoss(loss_type='cosface')
+        # else:
+        #     raise ValueError('Unsupported Loss: ' + pred_loss)
+        self.pred_loss = nn.CrossEntropyLoss(reduction='none')
 
     def forward(self, input):
         pred_loss = self.pred_loss(input['prediction'], input['label'])
+        if 'weight' in input:
+            pred_loss = torch.sum(pred_loss * input['weight'])
+        else:
+            pred_loss = torch.sum(pred_loss)
         return {
             'loss': pred_loss,
             'pred_loss': pred_loss,

@@ -83,6 +83,9 @@ class LoadConfig(object):
         #         "'LoadConfig' object has no attribute '{}'".format(key))
         return self.__dict__.get(key)
 
+    def __contains__(self, item):
+        return item in self.__dict__
+
 
 ####################
 # miscellaneous

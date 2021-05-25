@@ -129,21 +129,23 @@ class RecognitionModel(BaseModel):
         self.val_save['all_time'] = 0
 
     def _feed_data(self, input):
-        img, label = input['img'], input['label']
+        img, label, weight = input['img'], input['label'], input['weight']
         if not self.is_cpu:
             img = img.cuda()
             label = label.cuda()
-        return img, label
+            weight = weight.cuda()
+        return img, label, weight
 
     def train_epoch(self, input):
-        img, label = self._feed_data(input)
+        img, label, weight = self._feed_data(input)
         output = self.model(img)
         output['label'] = label
+        output['weight'] = weight
         loss_dict = self.criterion(output)
         return loss_dict
 
     def val_epoch(self, input):
-        img, label = self._feed_data(input)
+        img, label, _ = self._feed_data(input)
 
         start = time.time()
         output = self.model(img)

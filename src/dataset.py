@@ -100,6 +100,7 @@ class EyeDataset(data.Dataset):
         super(EyeDataset, self).__init__()
 
         self.mode = mode
+        self.weight = weight
 
         self.dataset_path = osp.join('dataset', dataset)
 
@@ -149,15 +150,15 @@ class EyeDataset(data.Dataset):
 
         if dfs is not None and weight is not None:
             self.dfs = dfs
+            dfs = np.array([x for x in dfs.values()])
             if weight == 'gaussian':
-                d = np.array([x for x in dfs.values()])
                 self.weight_fun = lambda x: ((1 / (np.power(
-                    2 * np.pi, 0.5) * d.std())) * np.exp(-0.5 * np.power(
-                        (x - d.mean()) / d.std(), 2)))
+                    2 * np.pi, 0.5) * dfs.std())) * np.exp(-0.5 * np.power(
+                        (x - dfs.mean()) / dfs.std(), 2)))
             else:
                 self.weight_fun = None
         else:
-            self.dfs = None
+            self.dfs = {}
 
     def __len__(self) -> int:
         return len(self.info_list)
@@ -169,10 +170,11 @@ class EyeDataset(data.Dataset):
         label = torch.tensor(info['label'], dtype=torch.long)
         name = info['name']
 
-        if self.dfs is not None and self.weight is not None:
-            weight = self.weight_fun(self.dfs[name])
+        if name in self.dfs and self.weight is not None:
+            weight = torch.tensor(self.weight_fun(self.dfs[name]),
+                                  dtype=torch.float)
         else:
-            weight = torch.tensor(-1, dtype=torch.float)
+            weight = torch.tensor(1, dtype=torch.float)
 
         return img.to(torch.float), label, weight, name
 
