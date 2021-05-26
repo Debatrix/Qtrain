@@ -64,7 +64,7 @@ def test(config, checkpoint):
 
     # evaluation
     val_save = model.val_save
-    val_result = r_evaluation(
+    val_result, val_save = r_evaluation(
         val_save,
         len(test_data_loader.dataset),
     )

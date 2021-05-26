@@ -86,10 +86,15 @@ class LoadConfig(object):
     def __contains__(self, item):
         return item in self.__dict__
 
+    def get_dict(self):
+        return self.__dict__
+
 
 ####################
 # miscellaneous
 ####################
+
+tqdm_bar = '{desc} {n_fmt}/{total_fmt}-{percentage:3.0f}%|{rate_fmt}'
 
 
 def get_datestamp():

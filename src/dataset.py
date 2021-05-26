@@ -17,7 +17,7 @@ class FaceDataset(data.Dataset):
                  dataset='distance',
                  mode='qtrain',
                  less_data=False,
-                 dfs=None,
+                 dfs={},
                  **kwargs):
         super(FaceDataset, self).__init__()
 
@@ -53,7 +53,7 @@ class FaceDataset(data.Dataset):
         self.normalize = transforms.Normalize(*meta['face_mean&std'],
                                               inplace=True)
 
-        self.dfs = dfs
+        self.dfs = dfs if dfs is not None else {}
 
     def __len__(self) -> int:
         return len(self.info_list)
@@ -74,12 +74,10 @@ class FaceDataset(data.Dataset):
         l_name = osp.basename(info['l_norm']).split('.')[0]
         r_name = osp.basename(info['r_norm']).split('.')[0]
         ename = [l_name, r_name]
-        if self.dfs is not None:
-            l_dfs = self.dfs[l_name] if l_name in self.dfs else 0
-            r_dfs = self.dfs[r_name] if r_name in self.dfs else 0
-            dfs = torch.tensor((l_dfs, r_dfs), dtype=torch.float)
-        else:
-            dfs = torch.tensor((0, 0), dtype=torch.float)
+
+        l_dfs = self.dfs[l_name] if l_name in self.dfs else -1
+        r_dfs = self.dfs[r_name] if r_name in self.dfs else -1
+        dfs = torch.tensor((l_dfs, r_dfs), dtype=torch.float)
 
         return img.to(torch.float), mask.to(torch.long), dfs, ename
 

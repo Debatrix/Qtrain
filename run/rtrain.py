@@ -1,27 +1,16 @@
-from run.set_model import set_q_model, set_r_model
+import os
 from tqdm import tqdm
 
 import torch
-from torch.utils.data import DataLoader
 
-from src.base_train import train as base_train
-from src.dataset import EyeDataset, FaceDataset
+from src.base_train import base_train_head, train as base_train, train_body
 from src.evaluation import r_evaluation, r_val_plot, q_evaluation
+from run.set_model import set_eye_dataloaders, set_face_dataloaders, set_q_model, set_r_model
 
 
 def prepare(config):
     dfs = []
-    train_data = FaceDataset(
-        dataset=config['dataset'],
-        mode='rtrain',
-        less_data=config['less_data'],
-    )
-    train_data_loader = DataLoader(train_data,
-                                   config['batchsize'],
-                                   shuffle=True,
-                                   drop_last=True,
-                                   pin_memory=True,
-                                   num_workers=config['num_workers'])
+    train_data_loader, _ = set_face_dataloaders(config, 'rtrain')
 
     checkpoint = torch.load(config['q_cp_path'],
                             map_location=torch.device('cpu'))
@@ -39,7 +28,7 @@ def prepare(config):
                               dynamic_ncols=True):
             model.val_epoch(test_data)
     val_save = model.val_save
-    val_result = q_evaluation(
+    val_result, val_save = q_evaluation(
         val_save,
         len(train_data_loader.dataset),
     )
@@ -48,44 +37,7 @@ def prepare(config):
     return dfs
 
 
-def set_dataloaders(config, dfs):
-    train_data = EyeDataset(dataset=config['dataset'],
-                            mode='rtrain',
-                            less_data=config['less_data'],
-                            dfs=dfs,
-                            weight=config['weight'])
-    train_data_loader = DataLoader(train_data,
-                                   config['batchsize'],
-                                   drop_last=True,
-                                   shuffle=True,
-                                   pin_memory=True,
-                                   num_workers=config['num_workers'])
-    val_data = EyeDataset(dataset=config['dataset'],
-                          mode='val',
-                          less_data=config['less_data'])
-    val_data_loader = DataLoader(val_data,
-                                 config['batchsize'],
-                                 shuffle=True,
-                                 drop_last=True,
-                                 pin_memory=True,
-                                 num_workers=config['num_workers'])
-    num_classes = train_data.num_classes
-    return (train_data_loader, val_data_loader), num_classes
-
-
-def train(config):
-    if config['q_cp_path']:
-        dfs = prepare(config)
-    else:
-        dfs = [None, None]
-    # data
-    print('Loading Data')
-    dataloaders, num_classes = set_dataloaders(config, dfs)
-    config.num_classes = num_classes
-
-    # model and
-    model = set_r_model(config)
-
+def _train(config, model, dataloaders, log_writer):
     # optimizer and scheduler
     params = []
     for name, value in model.named_parameters():
@@ -128,5 +80,71 @@ def train(config):
     optimizers = (optimizer, scheduler)
 
     # train
-    base_train(config, dataloaders, model, optimizers, r_evaluation,
-               r_val_plot)
+    model = train_body(
+        config,
+        model,
+        dataloaders,
+        optimizers,
+        r_evaluation,
+        log_writer,
+        r_val_plot,
+    )
+    return model
+
+
+def train(config):
+    if config['q_cp_path']:
+        pdfs = prepare(config)
+    else:
+        pdfs = None
+    # data
+    print('Loading Data')
+    dataloaders, num_classes = set_eye_dataloaders(config, 'rtrain', pdfs)
+    config['num_classes'] = num_classes
+
+    # model
+    model = set_r_model(config)
+    config, model, log_writer = base_train_head(config, model)
+    for round in range(1, config['r_max_epoch'][0] + 1):
+        config['tag'] = 'R{}'.format(round)
+        config['cur_epoch'] = (round - 1) * config['r_max_epoch'][1]
+        config['max_epochs'] = round * config['r_max_epoch'][1]
+
+        params = []
+        for name, value in model.named_parameters():
+            if not value.requires_grad:
+                continue
+            if 'bias' in name:
+                params += [{
+                    'params': value,
+                    'lr': 2 * config['lr'],
+                    'weight_decay': 0
+                }]
+            else:
+                params += [{'params': value, 'lr': config['lr']}]
+
+        optimizer = torch.optim.SGD(
+            params,
+            lr=config['lr'],
+            momentum=0.9,
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            'min',
+            factor=0.5,
+            patience=config['log_interval'] * 2,
+            verbose=True)
+
+        # train
+        model = train_body(
+            config,
+            model,
+            dataloaders,
+            (optimizer, scheduler),
+            r_evaluation,
+            log_writer,
+            r_val_plot,
+        )
+        save_path = os.path.join(config['cp_dir_path'],
+                                 'Round{}.pth'.format(round))
+        model.save_checkpoint(save_path, info=config)

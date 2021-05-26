@@ -216,7 +216,7 @@ def r_evaluation(val_save, val_num):
     val_save['dfs'] = get_dfs(val_save['sim'], val_save['feature'],
                               val_save['label'], val_save['name'])
 
-    return result
+    return result, val_save
 
 
 def q_evaluation(val_save, val_num):
@@ -243,10 +243,10 @@ def q_evaluation(val_save, val_num):
 
     val_save['pdfs'] = {name[x]: pdfs[x] for x in range(len(name))}
 
-    return result
+    return result, val_save
 
 
-def q_val_plot(log_writer, epoch, val_save, mode='val'):
+def q_val_plot(log_writer, epoch, val_save):
     idx = np.random.randint(val_save['mask'].shape[0])
     mask = val_save['mask'][idx]
     heatmap = val_save['heatmap'][idx]
@@ -271,7 +271,7 @@ def q_val_plot(log_writer, epoch, val_save, mode='val'):
     plot_log_dis(log_writer, [val_save['dfs'], val_save['prediction']], epoch)
 
 
-def r_val_plot(log_writer, epoch, val_save, mode='val'):
+def r_val_plot(log_writer, epoch, val_save):
     plot_log_roc(
         log_writer,
         val_save['roc'],

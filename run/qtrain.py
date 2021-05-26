@@ -1,38 +1,16 @@
 from tqdm import tqdm
 import torch
-from torch.utils.data import DataLoader
 
 from src.base_train import train as base_train
-from src.dataset import EyeDataset, FaceDataset
 from src.evaluation import r_evaluation, q_val_plot, q_evaluation
 
-from run.set_model import set_q_model, set_r_model
+from run.set_model import set_eye_dataloaders, set_face_dataloaders, set_q_model, set_r_model
 
 
 def prepare(config):
     dfs = []
-    train_data = EyeDataset(
-        dataset=config['dataset'],
-        mode='qtrain',
-        less_data=config['less_data'],
-    )
-    train_data_loader = DataLoader(train_data,
-                                   config['batchsize'],
-                                   shuffle=True,
-                                   drop_last=True,
-                                   pin_memory=True,
-                                   num_workers=config['num_workers'])
-    val_data = EyeDataset(
-        dataset=config['dataset'],
-        mode='val',
-        less_data=config['less_data'],
-    )
-    val_data_loader = DataLoader(val_data,
-                                 config['batchsize'],
-                                 shuffle=True,
-                                 drop_last=True,
-                                 pin_memory=True,
-                                 num_workers=config['num_workers'])
+    data_loader, _ = set_eye_dataloaders(config, 'qtrain')
+    train_data_loader, val_data_loader = data_loader
 
     checkpoint = torch.load(config['r_cp_path'],
                             map_location=torch.device('cpu'))
@@ -50,7 +28,7 @@ def prepare(config):
                               dynamic_ncols=True):
             model.val_epoch(test_data)
     val_save = model.val_save
-    val_result = r_evaluation(
+    val_result, val_save = r_evaluation(
         val_save,
         len(train_data_loader.dataset),
     )
@@ -62,7 +40,7 @@ def prepare(config):
                               dynamic_ncols=True):
             model.val_epoch(test_data)
     val_save = model.val_save
-    val_result = r_evaluation(
+    val_result, val_save = r_evaluation(
         val_save,
         len(val_data_loader.dataset),
     )
@@ -71,41 +49,12 @@ def prepare(config):
     return dfs
 
 
-def set_dataloaders(config, dfs):
-
-    train_data = FaceDataset(
-        dataset=config['dataset'],
-        mode='qtrain',
-        less_data=config['less_data'],
-        dfs=dfs[0],
-    )
-    train_data_loader = DataLoader(train_data,
-                                   config['batchsize'],
-                                   drop_last=True,
-                                   shuffle=True,
-                                   pin_memory=True,
-                                   num_workers=config['num_workers'])
-    val_data = FaceDataset(
-        dataset=config['dataset'],
-        mode='val',
-        less_data=config['less_data'],
-        dfs=dfs[1],
-    )
-    val_data_loader = DataLoader(val_data,
-                                 config['batchsize'],
-                                 shuffle=True,
-                                 drop_last=True,
-                                 pin_memory=True,
-                                 num_workers=config['num_workers'])
-    return (train_data_loader, val_data_loader)
-
-
 def train(config):
     dfs = prepare(config)
 
     # data
     print('Loading Data')
-    dataloaders = set_dataloaders(config, dfs)
+    dataloaders = set_face_dataloaders(config, 'qtrain', dfs)
 
     # model and
     model = set_q_model(config)

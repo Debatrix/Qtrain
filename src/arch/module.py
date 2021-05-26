@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import torch
 import torch.nn as nn
 from torch.nn import init
@@ -238,6 +239,25 @@ class MaxoutBackbone(Module):
 # #############################################################################
 
 
+class EmbeddingBackbone(Module):
+    def __init__(self):
+        super(EmbeddingBackbone, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(1, 128, 5),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, stride=2),
+            nn.Conv2d(128, 256, 5),
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+        self.init_params()
+
+    def forward(self, input):
+        feature = self.features(input)
+        feature = feature.view(-1, 256)
+        return feature
+
+
 class VGG11BNBackbone(nn.Module):
     def __init__(self, pretrained=True):
         super(VGG11BNBackbone, self).__init__()
@@ -326,6 +346,45 @@ class SEnet18(Module):
         feature = self.features(input)
         feature = self.avgpool(feature)
         feature = feature.view(-1, feature.shape[1])
+        return feature
+
+
+class VniNetBackbone(Module):
+    def __init__(self):
+        super(VniNetBackbone, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(1, 16, (3, 7), stride=1, padding=(1, 3), bias=False),
+            nn.Tanh(),
+        )
+        self.conv2 = nn.Sequential(
+            nn.AvgPool2d(2, stride=2),
+            nn.Conv2d(16, 32, (3, 5), stride=1, padding=(1, 2), bias=False),
+            nn.Tanh(),
+        )
+        self.conv3 = nn.Sequential(
+            nn.AvgPool2d(2, stride=2),
+            nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False),
+            nn.Tanh(),
+        )
+        self.fuse_a = nn.Conv2d(112, 256, 1, stride=1, padding=1, bias=False)
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+
+        self.init_params()
+
+    def forward(self, input):
+        x1 = self.conv1(input)
+        x2 = self.conv2(x1)
+        x3 = self.conv3(x2)
+        x2 = F.interpolate(x2,
+                           size=x1.shape[-2:],
+                           mode='bilinear',
+                           align_corners=False)
+        x3 = F.interpolate(x3,
+                           size=x1.shape[-2:],
+                           mode='bilinear',
+                           align_corners=False)
+        feature = self.avgpool(self.fuse_a(torch.cat((x1, x2, x3), dim=1)))
+        feature = feature.view(-1, 256)
         return feature
 
 
