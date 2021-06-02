@@ -16,6 +16,8 @@ def set_r_model(config):
     # model
     if model_name.lower() == 'maxout':
         model = rmodel.Maxout(num_classes=config['num_classes'])
+    elif model_name.lower() == 'maxout_o':
+        model = rmodel.MaxoutO(num_classes=config['num_classes'])
     elif model_name.lower() == 'embedding':
         model = rmodel.Embedding(num_classes=config['num_classes'])
     elif model_name.lower() == 'vninet':

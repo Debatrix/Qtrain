@@ -82,4 +82,4 @@ def test(config, checkpoint):
         log_writer.add_text('cur_config', cp_config.__str__())
         log_writer.add_text('test_result', val_info)
         if r_val_plot is not None:
-            r_val_plot(log_writer, 0, val_save, 'test')
+            r_val_plot(log_writer, 0, val_save)

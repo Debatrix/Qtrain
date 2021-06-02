@@ -10,7 +10,7 @@ class Config(LoadConfig):
         super(Config, self).__init__()
         self.log_name = "test_set"
 
-        self.r_cp_path = "checkpoints/0520_221932_r_maxout_/400_8.3929e-02.pth"
+        self.r_cp_path = "checkpoints/0526_184609_r_maxout_/Round4.pth"
         self.visible = True
         self.debug = False
         self.less_data = False
@@ -41,5 +41,5 @@ if __name__ == "__main__":
     checkpoint = torch.load(config['r_cp_path'],
                             map_location=torch.device('cpu'))
 
-    if checkpoint['cfg']['train_type'] == 'r':
+    if checkpoint['cfg']['train_type'] in ['r', 'rq']:
         rtest(config, checkpoint)

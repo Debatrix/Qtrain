@@ -29,6 +29,11 @@ class FaceDataset(data.Dataset):
         with open(meta_path, 'r') as f:
             meta = json.load(f)
 
+        if meta['name'] == 'CASIA-Iris-Distance':
+            self.rate = 4.59375
+        else:
+            self.rate = 2.5
+
         self.info_list = []
         for info in meta['info'].values():
             if info['label'] in meta['protocol'][mode]:
@@ -62,8 +67,8 @@ class FaceDataset(data.Dataset):
         img = Image.open(osp.join(self.dataset_path, info['img']))
         img = self.transform(img)
         img = self.normalize(img)
-        l_loc = np.round(np.array(info['l_loc']) / 4.59375).astype(np.int)
-        r_loc = np.round(np.array(info['r_loc']) / 4.59375).astype(np.int)
+        l_loc = np.round(np.array(info['l_loc']) / self.rate).astype(np.int)
+        r_loc = np.round(np.array(info['r_loc']) / self.rate).astype(np.int)
 
         # image are resized!
         mask = np.zeros((img.shape[1], img.shape[2]), dtype=np.uint8)
@@ -75,8 +80,8 @@ class FaceDataset(data.Dataset):
         r_name = osp.basename(info['r_norm']).split('.')[0]
         ename = [l_name, r_name]
 
-        l_dfs = self.dfs[l_name] if l_name in self.dfs else -1
-        r_dfs = self.dfs[r_name] if r_name in self.dfs else -1
+        l_dfs = self.dfs[l_name] if l_name in self.dfs else 0
+        r_dfs = self.dfs[r_name] if r_name in self.dfs else 0
         dfs = torch.tensor((l_dfs, r_dfs), dtype=torch.float)
 
         return img.to(torch.float), mask.to(torch.long), dfs, ename
@@ -185,21 +190,8 @@ class EyeDataset(data.Dataset):
 if __name__ == "__main__":
     from tqdm import tqdm
     from torch.utils.data import DataLoader
-    data = FaceDataset(mode='qtrain', dataset='distance', less_data=False)
+    data = EyeDataset(mode='qtrain', dataset='thousand', less_data=False)
 
-    for x in tqdm(data):
-        fname = []
-        try:
-            fname += x['ename']
-            pass
-        except Exception as e:
-            print(e)
-    data = FaceDataset(mode='qtrain', dataset='distance', less_data=False)
-
-    for x in tqdm(data):
-        fname = []
-        try:
-            fname += x['ename']
-            pass
-        except Exception as e:
-            print(e)
+    for x in data:
+        # print(x['img'].shape, x['mask'].shape, x['ename'], x['dfs'])
+        print(x['img'].shape, x['name'], x['label'], x['weight'])

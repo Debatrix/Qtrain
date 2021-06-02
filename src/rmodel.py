@@ -18,6 +18,18 @@ class Maxout(nn.Module):
         return {'feature': feature, 'prediction': prediction}
 
 
+class MaxoutO(nn.Module):
+    def __init__(self, num_classes):
+        super(MaxoutO, self).__init__()
+        self.backbone = MaxoutBackbone()
+        self.classifier = PredictHead(num_classes, 256)
+
+    def forward(self, input):
+        feature = self.backbone(input)
+        prediction = self.classifier(feature)
+        return {'feature': feature, 'prediction': prediction}
+
+
 class Embedding(nn.Module):
     def __init__(self, num_classes):
         super(Embedding, self).__init__()

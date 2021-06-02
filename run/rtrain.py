@@ -110,6 +110,7 @@ def train(config):
         config['cur_epoch'] = (round - 1) * config['r_max_epoch'][1]
         config['max_epochs'] = round * config['r_max_epoch'][1]
 
+        # optimizer and scheduler
         params = []
         for name, value in model.named_parameters():
             if not value.requires_grad:
@@ -123,11 +124,10 @@ def train(config):
             else:
                 params += [{'params': value, 'lr': config['lr']}]
 
-        optimizer = torch.optim.SGD(
-            params,
-            lr=config['lr'],
-            momentum=0.9,
-        )
+        optimizer = torch.optim.SGD(params,
+                                    lr=config['lr'],
+                                    momentum=0.9,
+                                    weight_decay=config['weight_decay'])
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             'min',
