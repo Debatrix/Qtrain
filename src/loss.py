@@ -83,11 +83,11 @@ class AngularPenaltySMLoss(nn.Module):
 
 
 class PredictLoss(nn.Module):
-    def __init__(self, pred_loss='ce', *args, **kargs) -> None:
+    def __init__(self, loss_type='ce', *args, **kargs) -> None:
         super(PredictLoss, self).__init__()
 
-        # if pred_loss.lower() == 'ce':
-        #     self.pred_loss = nn.CrossEntropyLoss(reduction='sum')
+        if loss_type.lower() == 'triplet':
+            self.pred_loss = nn.TripletMarginLoss(margin=5, reduction='none')
         # elif pred_loss.lower() == 'arcface':
         #     self.pred_loss = AngularPenaltySMLoss(loss_type='arcface')
         # elif pred_loss.lower() == 'sphereface':
@@ -96,10 +96,15 @@ class PredictLoss(nn.Module):
         #     self.pred_loss = AngularPenaltySMLoss(loss_type='cosface')
         # else:
         #     raise ValueError('Unsupported Loss: ' + pred_loss)
-        self.pred_loss = nn.CrossEntropyLoss(reduction='none')
+        else:
+            self.pred_loss = nn.CrossEntropyLoss(reduction='none')
 
     def forward(self, input):
-        pred_loss = self.pred_loss(input['prediction'], input['label'])
+        if 'label' not in input:
+            anchor, positive, negative = torch.chunk(input['feature'], 3)
+            pred_loss = self.pred_loss(anchor, positive, negative)
+        else:
+            pred_loss = self.pred_loss(input['prediction'], input['label'])
         if 'weight' in input:
             pred_loss = torch.sum(pred_loss * input['weight'])
         else:
@@ -111,13 +116,13 @@ class PredictLoss(nn.Module):
 
 
 class IQALoss(nn.Module):
-    def __init__(self, pred_loss='mse', alpha=1e-3, *args, **kargs) -> None:
+    def __init__(self, loss_type='mse', alpha=1e-3, *args, **kargs) -> None:
         super(IQALoss, self).__init__()
-        if pred_loss in ['mse', 'l2']:
+        if loss_type in ['mse', 'l2']:
             self.pred_loss = nn.MSELoss(reduction='sum')
-        elif pred_loss in ['l1']:
+        elif loss_type in ['l1']:
             self.pred_loss = nn.L1Loss(reduction='sum')
-        elif pred_loss in ['sl1']:
+        elif loss_type in ['sl1']:
             self.pred_loss = nn.SmoothL1Loss(reduction='sum')
         else:
             raise ValueError('Unsupported Loss: ' + type)

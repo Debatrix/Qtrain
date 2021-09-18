@@ -74,7 +74,10 @@ def train_body(config,
         error_num = 0
 
         train_loss = epoch_loss['loss'] / len(train_data_loader.dataset)
-        scheduler.step(train_loss)
+        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            scheduler.step(train_loss)
+        else:
+            scheduler.step()
 
         pinfo = "{}[{}] {} Training - loss: {:.2e}".format(
             tag, cur_epoch, get_timestamp(), train_loss)

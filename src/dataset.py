@@ -5,6 +5,7 @@ import random
 import numpy as np
 import os.path as osp
 from PIL import Image
+from itertools import permutations
 
 import torch
 import torch.utils.data as data
@@ -111,6 +112,11 @@ class EyeDataset(data.Dataset):
         with open(meta_path, 'r') as f:
             meta = json.load(f)
 
+        # # delete this!
+        # if mode == 'test':
+        #     meta['protocol'][
+        #         mode] = meta['protocol'][mode] + meta['protocol']['qtrain']
+
         self.num_classes = meta['iris_label_num']
         self.info_list = []
         for k, info in meta['info'].items():
@@ -187,11 +193,114 @@ class EyeDataset(data.Dataset):
         return {'img': img, 'name': name, 'label': label, 'weight': weight}
 
 
+class EyePairDataset(data.Dataset):
+    def __init__(self,
+                 dataset='distance',
+                 mode='rtrain',
+                 less_data=False,
+                 dfs=None,
+                 weight='gaussian',
+                 **kwargs):
+        super(EyePairDataset, self).__init__()
+
+        self.mode = mode
+        self.weight = weight
+
+        self.dataset_path = osp.join('dataset', dataset)
+
+        meta_path = osp.join(self.dataset_path, 'meta.json')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+
+        # delete this!
+        if mode == 'test':
+            meta['protocol'][
+                mode] = meta['protocol'][mode] + meta['protocol']['qtrain']
+
+        self.num_classes = meta['iris_label_num']
+        self.info_list = []
+        info_list = []
+        label_dict = {x: [] for x in meta['iris_label'].values()}
+        for k, info in meta['info'].items():
+            if info['label'] in meta['protocol'][mode]:
+                name = osp.basename(info['l_norm']).split('.')[0]
+                einfo = {
+                    'name': name,
+                    'face': k,
+                    'norm': info['l_norm'],
+                    'label': meta['iris_label'][name]
+                }
+                if osp.exists(osp.join(self.dataset_path, einfo['norm'])):
+                    label_dict[meta['iris_label'][name]].append(einfo)
+                    info_list.append(einfo)
+                name = osp.basename(info['r_norm']).split('.')[0]
+                einfo = {
+                    'name': name,
+                    'face': k,
+                    'norm': info['r_norm'],
+                    'label': meta['iris_label'][name]
+                }
+                if osp.exists(osp.join(self.dataset_path, einfo['norm'])):
+                    label_dict[meta['iris_label'][name]].append(einfo)
+                    info_list.append(einfo)
+        for k, v in label_dict.items():
+            if len(v) == 0:
+                continue
+            _pos = [x for x in permutations(v, 2)]
+            _neg = []
+            while len(_neg) <= len(_pos) * 2:
+                neg = np.random.choice(info_list)
+                if neg['label'] != k:
+                    _neg.append(neg)
+            for idx, pos in enumerate(_pos):
+                self.info_list.append(list(pos) + [_neg[idx]])
+
+        random.shuffle(self.info_list)
+
+        if less_data:
+            if isinstance(less_data, (float, int)):
+                if less_data > 1 or less_data <= 0:
+                    less_data = 0.05
+            else:
+                less_data = 0.05
+            num = int(less_data * len(self.info_list))
+            num = num if num > 128 else 128
+            self.info_list = self.info_list[:num]
+
+        self.transform = transforms.Compose([
+            transforms.Resize(size=[128, 128]),
+            transforms.Grayscale(1),
+            transforms.ToTensor(),
+        ])
+
+    def __len__(self) -> int:
+        return len(self.info_list)
+
+    def _load_img(self, info):
+        img = Image.open(osp.join(self.dataset_path, info['norm']))
+        img = self.transform(img)
+
+        return img.to(torch.float)
+
+    def __getitem__(self, item):
+        info = self.info_list[item]
+        img1 = self._load_img(info[0])
+        img2 = self._load_img(info[1])
+        img3 = self._load_img(info[1])
+        assert info[0]['label'] == info[1]['label']
+        assert info[0]['label'] != info[2]['label']
+        return {
+            'img1': img1,
+            'img2': img2,
+            'img3': img3,
+        }
+
+
 if __name__ == "__main__":
     from tqdm import tqdm
     from torch.utils.data import DataLoader
-    data = EyeDataset(mode='qtrain', dataset='thousand', less_data=False)
+    data = EyePairDataset(mode='rtrain', dataset='LG4000', less_data=0.1)
 
     for x in data:
         # print(x['img'].shape, x['mask'].shape, x['ename'], x['dfs'])
-        print(x['img'].shape, x['name'], x['label'], x['weight'])
+        print(x['img1'].shape, x['img2'].shape, x['img3'].shape)

@@ -1,7 +1,7 @@
 import torch.nn.functional as F
 import torch.nn as nn
 
-from src.arch.module import MaxoutBackbone, VGG11BNBackbone, Resnet18Backbone, EmbeddingBackbone, PredictHead, VniNetBackbone
+from src.arch.module import MaxoutBackbone, VGG11BNBackbone, Resnet18Backbone, EmbeddingBackbone, PredictHead, VniNetBackbone, LightCNNBackbone
 
 
 # Recognition
@@ -26,6 +26,22 @@ class MaxoutO(nn.Module):
 
     def forward(self, input):
         feature = self.backbone(input)
+        prediction = self.classifier(feature)
+        return {'feature': feature, 'prediction': prediction}
+
+
+class LightCNN(nn.Module):
+    def __init__(self, num_classes, norm=True):
+        super(LightCNN, self).__init__()
+        self.backbone = LightCNNBackbone()
+        self.classifier = PredictHead(num_classes, 256)
+
+        self.norm = norm
+
+    def forward(self, input):
+        feature = self.backbone(input)
+        if self.norm:
+            feature = F.normalize(feature)
         prediction = self.classifier(feature)
         return {'feature': feature, 'prediction': prediction}
 
@@ -70,14 +86,16 @@ class VGG11BN(nn.Module):
 
 
 class Resnet18(nn.Module):
-    def __init__(self, num_classes, pretrained=True):
+    def __init__(self, num_classes, norm=False, pretrained=True):
         super(Resnet18, self).__init__()
         self.backbone = Resnet18Backbone(pretrained)
+        self.norm = norm
         self.classifier = PredictHead(num_classes, 512)
 
     def forward(self, input):
         feature = self.backbone(input)
-        feature = F.normalize(feature)
+        if self.norm:
+            feature = F.normalize(feature)
         prediction = self.classifier(feature)
         return {'feature': feature, 'prediction': prediction}
 

@@ -124,16 +124,19 @@ def train(config):
             else:
                 params += [{'params': value, 'lr': config['lr']}]
 
-        optimizer = torch.optim.SGD(params,
-                                    lr=config['lr'],
-                                    momentum=0.9,
-                                    weight_decay=config['weight_decay'])
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            'min',
-            factor=0.5,
-            patience=config['log_interval'] * 2,
-            verbose=True)
+        optimizer = torch.optim.Adam(
+            params,
+            lr=config['lr'],
+            # momentum=0.9,
+            weight_decay=config['weight_decay'])
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer,
+        #     'min',
+        #     factor=0.5,
+        #     patience=config['log_interval'] * 2,
+        #     verbose=True)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=[50, 150, 200, 250], gamma=0.5)
 
         # train
         model = train_body(

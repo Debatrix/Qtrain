@@ -208,6 +208,20 @@ class mfm_linear(nn.Module):
         return torch.max(out[0], out[1])
 
 
+class light_group(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride,
+                 padding):
+        super(light_group, self).__init__()
+        self.conv_a = mfm_conv(in_channels, in_channels, 1, 1, 0)
+        self.conv = mfm_conv(in_channels, out_channels, kernel_size, stride,
+                             padding)
+
+    def forward(self, x):
+        x = self.conv_a(x)
+        x = self.conv(x)
+        return x
+
+
 class MaxoutBackbone(Module):
     def __init__(self):
         super(MaxoutBackbone, self).__init__()
@@ -233,6 +247,29 @@ class MaxoutBackbone(Module):
         x = self.dropout(x)
         if evaluation:
             x = F.normalize(x, dim=1)
+        return x
+
+
+class LightCNNBackbone(nn.Module):
+    def __init__(self, feature_dim=256):
+        super(LightCNNBackbone, self).__init__()
+        self.features = nn.Sequential(
+            mfm_conv(1, 48, 5, 1, 2),
+            nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True),
+            light_group(48, 96, 3, 1, 1),
+            nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True),
+            light_group(96, 192, 3, 1, 1),
+            nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True),
+            light_group(192, 128, 3, 1, 1),
+            light_group(128, 128, 3, 1, 1),
+            nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True),
+        )
+        self.fc1 = mfm_linear(8 * 8 * 128, feature_dim)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc1(x)
         return x
 
 
@@ -718,7 +755,7 @@ class PredictHead(Module):
     def __init__(self, num_classes, feature_channel=256):
         super(PredictHead, self).__init__()
         self.dropout = nn.Dropout()
-        self.fc = nn.Linear(feature_channel, num_classes)
+        self.fc = nn.Linear(feature_channel, num_classes, bias=False)
 
         self.init_params()
 

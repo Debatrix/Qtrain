@@ -1,4 +1,5 @@
 import itertools
+from collections import OrderedDict
 
 import numpy as np
 import sklearn.metrics
@@ -15,6 +16,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.preprocessing import normalize
 
 
 def curve2text(curve):
@@ -132,6 +134,7 @@ def plot_log_prc(writer, prc, epoch=0, log_name='pr_curve'):
 
 
 def plot_feature(writer, feature, label, method='PCA', epoch=0):
+    colors = ["r", "b", 'g', 'm', 'c', 'y', 'k', "brown", "orange", "pink"]
     figure = plt.figure()
     if method.lower() == 'tsne':
         projector = TSNE(n_components=2, init='pca', perplexity=60)
@@ -140,8 +143,7 @@ def plot_feature(writer, feature, label, method='PCA', epoch=0):
         projector = PCA(n_components=2)
         method = 'PCA'
     d_feature = projector.fit_transform(feature)
-    label_set = list(set(label.tolist()))
-    colors = ["red", "blue", "brown", "orange", "pink", "yellow", "green"]
+    label_set = list(set(label.tolist()))[:len(colors)]
     for i, l in enumerate(label_set):
         plt.scatter(d_feature[np.where(label == l), 0],
                     d_feature[np.where(label == l), 1],
@@ -151,7 +153,8 @@ def plot_feature(writer, feature, label, method='PCA', epoch=0):
                     alpha=0.5)
     plt.xlabel('component 1')
     plt.ylabel('component 2')
-    plt.legend()
+    if len(label_set) < 5:
+        plt.legend()
     writer.add_figure("feature/{}".format(method), figure, epoch)
 
 
@@ -183,19 +186,41 @@ def plot_log_dis(writer, dfs, epoch=0, log_name='distribution'):
 # ##############################################################################
 def recognition_metrics(feature, label):
     result = {}
+    feature = normalize(feature, axis=1)
     sim_mat = np.dot(feature, feature.T)
-    TAR, FAR, FRR, AUC, T = get_roc_curve(*get_scores(sim_mat, label))
+    scores, signals = get_scores(sim_mat, label)
+    m1 = scores[np.where(signals == 1)].mean()
+    s1 = scores[np.where(signals == 1)].std()
+    m0 = scores[np.where(signals == 0)].mean()
+    s0 = scores[np.where(signals == 0)].std()
+    DI = np.abs(m0 - m1) / np.sqrt((s0**2 + s1**2) / 2)
+    TAR, FAR, FRR, AUC, T = get_roc_curve(scores, signals)
     EER, T_eer = get_eer(FAR, FRR, T)
+
+    nrof_pos = signals.sum()
+    nrof_neg = signals.size - nrof_pos
+    acc_level = int(np.floor(np.log(nrof_neg) / np.log(10)))
+    FNMR_FMR = {}
+
+    for lv in range(int(acc_level)):
+        fmr = pow(10, -1 * lv)
+        idx = np.where(FAR <= fmr)[0]
+        fnmr = FRR[idx[-1]]
+        FNMR_FMR[fmr] = fnmr
+
     result['sim'] = sim_mat
     result['eer'] = EER
+    result['DI'] = DI
     result['roc'] = (FAR, TAR, T, AUC)
+    result['fnmr@fmr'] = FNMR_FMR
+
     return result
 
 
 # ##############################################################################
 
 
-def r_evaluation(val_save, val_num):
+def r_evaluation(val_save, val_num, test=False):
     result = {}
     label = np.concatenate(val_save['label'], axis=0)
     feature = np.concatenate(val_save['feature'], 0)
@@ -205,16 +230,23 @@ def r_evaluation(val_save, val_num):
 
     result['ch_index'] = sklearn.metrics.calinski_harabasz_score(
         feature, label)
-    result.update(recognition_metrics(feature, label))
 
-    val_save['roc'] = result.pop('roc')
-    val_save['sim'] = result.pop('sim')
+    val_save.update(recognition_metrics(feature, label))
+    result['eer'] = val_save['eer']
+    result['DI'] = val_save['DI']
+
     val_save['name'] = list(itertools.chain(*val_save['name']))
     val_save['feature'] = feature
     val_save['label'] = label
-
     val_save['dfs'] = get_dfs(val_save['sim'], val_save['feature'],
                               val_save['label'], val_save['name'])
+
+    if test:
+        result['speed'] = val_num / val_save['all_time']
+        result['fnmr@fmr'] = '\n' + ''.join([
+            '\tFNMR:{:.2f}%% @FMR:{:.2f}%%\n'.format(100.0 * fnmr, 100.0 * fmr)
+            for fmr, fnmr in val_save['fnmr@fmr'].items()
+        ])
 
     return result, val_save
 
@@ -271,7 +303,7 @@ def q_val_plot(log_writer, epoch, val_save):
     plot_log_dis(log_writer, [val_save['dfs'], val_save['prediction']], epoch)
 
 
-def r_val_plot(log_writer, epoch, val_save):
+def r_val_plot(log_writer, epoch, val_save, mode='val'):
     plot_log_roc(
         log_writer,
         val_save['roc'],
@@ -282,12 +314,14 @@ def r_val_plot(log_writer, epoch, val_save):
         log_writer,
         val_save['dfs'],
         epoch,
-        # log_name="dfs",
     )
 
-    # tag = [
-    #     '{}_{}'.format(*x) for x in zip(val_save['label'], val_save['name'])
-    # ]
-    log_writer.add_embedding(val_save['feature'],
-                             val_save['label'],
-                             global_step=epoch)
+    if mode == 'test':
+        plot_feature(log_writer,
+                     val_save['feature'],
+                     val_save['label'],
+                     method='PCA',
+                     epoch=0)
+        log_writer.add_embedding(val_save['feature'],
+                                 val_save['label'],
+                                 global_step=epoch)

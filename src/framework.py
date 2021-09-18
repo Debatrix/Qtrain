@@ -145,21 +145,41 @@ class RecognitionModel(BaseModel):
         return loss_dict
 
     def val_epoch(self, input):
-        img, label, _ = self._feed_data(input)
 
         start = time.time()
+        img, label, _ = self._feed_data(input)
         output = self.model(img)
-        self.val_save['all_time'] += time.time() - start
+        spend = time.time() - start
+        self.val_save['all_time'] += spend
 
         output['label'] = label
-        loss_dict = self.criterion(output)
+        # if self.criterion:
+        #     loss_dict = self.criterion(output)
+        #     self.val_save['pred_loss'] += loss_dict['pred_loss'].cpu().item()
 
-        self.val_save['pred_loss'] += loss_dict['pred_loss'].cpu().item()
         self.val_save['prediction'].append(output['prediction'].cpu().numpy())
         self.val_save['label'].append(label.cpu().numpy())
         self.val_save['feature'].append(output['feature'].cpu().numpy())
         self.val_save['name'].append(input['name'])
         return self.val_save
+
+
+class TripRecognitionModel(RecognitionModel):
+    def __init__(self, model, criterion=nn.TripletMarginLoss()):
+        super(TripRecognitionModel, self).__init__(model, criterion)
+
+    def _feed_train_data(self, input):
+        img1, img2, img3 = input['img1'], input['img2'], input['img3']
+        img = torch.cat((img1, img2, img3), 0)
+        if not self.is_cpu:
+            img = img.cuda()
+        return img
+
+    def train_epoch(self, input):
+        img = self._feed_train_data(input)
+        output = self.model(img)
+        loss_dict = self.criterion(output)
+        return loss_dict
 
 
 class IQAnModel(BaseModel):
