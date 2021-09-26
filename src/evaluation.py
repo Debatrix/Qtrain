@@ -9,9 +9,11 @@ from scipy.special import softmax, erf
 import torch
 import tensorflow as tf
 import tensorboard as tb
+
 tf.io.gfile = tb.compat.tensorflow_stub.io.gfile
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
@@ -225,7 +227,7 @@ def r_evaluation(val_save, val_num, test=False):
     label = np.concatenate(val_save['label'], axis=0)
     feature = np.concatenate(val_save['feature'], 0)
 
-    if 'pred_loss' in val_save:
+    if 'pred_loss' in val_save and val_save['pred_loss'] > 0:
         result['pred_loss'] = val_save['pred_loss'] / val_num
 
     result['ch_index'] = sklearn.metrics.calinski_harabasz_score(

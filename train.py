@@ -7,19 +7,19 @@ from run.rqtrain import train as rqtrain
 class Config(LoadConfig):
     def __init__(self) -> None:
         super(Config, self).__init__()
-        self.info = "LG4000"
-        self.log_name = "LG4000"
+        self.info = "more_dataset_more_round"
+        self.log_name = "more_dataset_more_round"
 
-        self.dataset = 'LG4000'
+        self.dataset = ['LG4000', 'LG2200', 'distance', 'thousand']
         self.q_cp_path = ""
         self.r_cp_path = ""
         self.visible = True
-        self.log_interval = 10
+        self.log_interval = 5
         self.save_interval = -1
         self.less_data = False
         self.debug = False
 
-        self.train_type = 'rq'
+        self.train_type = 'r'
         self.q_model_name = 'Unet'
         self.r_model_name = 'maxout'
         self.pretrained = True
@@ -30,15 +30,15 @@ class Config(LoadConfig):
         self.alpha = 0.5
 
         self.q_batchsize = 8
-        self.r_batchsize = 32
-        self.device = [3, 2, 0, 1]
-        self.num_workers = 4
+        self.r_batchsize = 64
+        self.device = [3, 4, 5, 6]
+        self.num_workers = 8
         self.seed = 2358
 
         self.max_epochs = 1500
         self.q_max_epoch = [14, 200]
-        self.r_max_epoch = [15, 250]
-        self.lr = 1e-4
+        self.r_max_epoch = [4, 250]
+        self.lr = 2e-3
         self.momentum = 0.9
         self.weight_decay = 0.01
         self._auto_setting()

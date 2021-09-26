@@ -47,6 +47,7 @@ class BaseModel(nn.Module):
         if torch.cuda.is_available() and device[0] is not 'cpu':
             # torch.cuda.set_device('cuda:{}'.format(device[0]))
             _device = torch.device('cuda:0')
+            torch.backends.cudnn.benchmark = True
             self.is_cpu = False
         else:
             if not torch.cuda.is_available():

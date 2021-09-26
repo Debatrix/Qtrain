@@ -136,7 +136,7 @@ def train(config):
         #     patience=config['log_interval'] * 2,
         #     verbose=True)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, milestones=[50, 150, 200, 250], gamma=0.5)
+            optimizer, milestones=[50, 150, 200, 250], gamma=0.1)
 
         # train
         model = train_body(

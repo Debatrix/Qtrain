@@ -14,17 +14,17 @@ class Config(LoadConfig):
         self.log_name = ""
         self.log_info = ""
 
-        self.r_cp_path = "checkpoints/recognition/"
-        self.dataset = None
+        self.r_cp_path = "checkpoints/0924_050232_r_maxout_more_dataset_more_round/0924_050232_r_maxout_more_dataset_more_round.pth"
+        self.dataset = ['distance', 'thousand']
         self.visible = True
         self.debug = False
         self.less_data = False
         self.warmup = False
 
         self.batchsize = 32
-        self.device = [0, 1, 2, 3]
-        self.num_workers = 0
-        self.seed = 2358
+        self.device = [0, 1, 2]
+        self.num_workers = 2
+        self.seed = 0
 
         self._auto_setting()
         self.apply()
@@ -42,27 +42,38 @@ class Config(LoadConfig):
 if __name__ == "__main__":
     # set config
     config = Config()
+    config = config.__dict__
 
     # load checkpoint
     if os.path.isfile(config['r_cp_path']):
         checkpoint = torch.load(config['r_cp_path'],
                                 map_location=torch.device('cpu'))
-        config.log_name = "{}_{}".format(
-            os.path.basename(config['r_cp_path']),
+        config['log_name'] = "{}_{}".format(
             config['log_name'],
+            '_'.join(os.path.dirname(config['r_cp_path']).split('_')[:2]),
         )
-        rtest(config, checkpoint)
+
+        datasets = config['dataset'] if isinstance(
+            config['dataset'], (list, tuple)) else [config['dataset']]
+        for dataset in datasets:
+            print('\ndataset: ', dataset)
+            config['dataset'] = dataset
+            config['log_name'] = "{}_{}".format(
+                config['log_name'],
+                dataset,
+            )
+            rtest(config, checkpoint)
     else:
         # clean
-        for x in glob('log/test2/*'):
+        for x in glob('log/test/*'):
             shutil.rmtree(x)
         cp_list = glob(os.path.join(config['r_cp_path'], '*.pth'))
         for idx, path in enumerate(cp_list):
             cur_config = copy.deepcopy(config)
-            cur_config.r_cp_path = path
+            config['r_cp_path'] = path
 
-            cur_config.dataset = 'distance'
-            cur_config.log_name = "{}_{}_{}".format(
+            config['dataset'] = 'distance'
+            config['log_name'] = "{}_{}_{}".format(
                 get_datestamp(),
                 os.path.basename(path).replace('.', '_'),
                 cur_config['dataset'],
@@ -76,7 +87,7 @@ if __name__ == "__main__":
             rtest(cur_config, checkpoint)
 
             cur_config.dataset = 'thousand'
-            cur_config.log_name = "{}_{}_{}".format(
+            config['log_name'] = "{}_{}_{}".format(
                 get_datestamp(),
                 os.path.basename(path).replace('.', '_'),
                 cur_config['dataset'],

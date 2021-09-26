@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from src import qmodel, rmodel
 from src.loss import IQALoss, PredictLoss
 from src.framework import IQAnModel, RecognitionModel, TripRecognitionModel
-from src.dataset import EyeDataset, EyePairDataset, FaceDataset
+from src.dataset import get_eye_dataset, EyePairDataset, FaceDataset
 
 
 def set_r_model(config):
@@ -79,27 +79,28 @@ def set_eye_dataloaders(config, mode='rtrain', pdfs=None):
                                     dfs=pdfs,
                                     weight=config['weight'])
     else:
-        train_data = EyeDataset(dataset=config['dataset'],
-                                mode=mode,
-                                less_data=config['less_data'],
-                                dfs=pdfs,
-                                weight=config['weight'])
+        train_data, num_classes = get_eye_dataset(
+            datasets=config['dataset'],
+            mode=mode,
+            less_data=config['less_data'],
+            dfs=pdfs,
+            weight=config['weight'])
     train_data_loader = DataLoader(train_data,
                                    config['r_batchsize'],
                                    drop_last=True,
                                    shuffle=True,
                                    pin_memory=True,
                                    num_workers=config['num_workers'])
-    val_data = EyeDataset(dataset=config['dataset'],
-                          mode='val',
-                          less_data=config['less_data'])
+    val_data, num_classes = get_eye_dataset(datasets=config['dataset'],
+                                            mode='val',
+                                            less_data=config['less_data'])
     val_data_loader = DataLoader(val_data,
                                  config['r_batchsize'],
                                  shuffle=True,
                                  drop_last=True,
                                  pin_memory=True,
                                  num_workers=config['num_workers'])
-    num_classes = train_data.num_classes
+    # num_classes = train_data.num_classes
     return (train_data_loader, val_data_loader), num_classes
 
 

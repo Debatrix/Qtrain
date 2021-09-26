@@ -9,6 +9,7 @@ from itertools import permutations
 
 import torch
 import torch.utils.data as data
+from torch.utils.data.dataset import ConcatDataset
 import torchvision.transforms as transforms
 
 
@@ -100,22 +101,25 @@ class EyeDataset(data.Dataset):
                  less_data=False,
                  dfs=None,
                  weight='gaussian',
+                 label_offset=0,
                  **kwargs):
         super(EyeDataset, self).__init__()
 
         self.mode = mode
         self.weight = weight
+        self.label_offset = label_offset
 
         self.dataset_path = osp.join('dataset', dataset)
 
         meta_path = osp.join(self.dataset_path, 'meta.json')
         with open(meta_path, 'r') as f:
             meta = json.load(f)
+        self.meta = meta
 
         # # delete this!
-        # if mode == 'test':
-        #     meta['protocol'][
-        #         mode] = meta['protocol'][mode] + meta['protocol']['qtrain']
+        if mode == 'rtrain':
+            meta['protocol'][
+                mode] = meta['protocol'][mode] + meta['protocol']['qtrain']
 
         self.num_classes = meta['iris_label_num']
         self.info_list = []
@@ -172,11 +176,16 @@ class EyeDataset(data.Dataset):
     def __len__(self) -> int:
         return len(self.info_list)
 
+    def set_label_offset(self, offset):
+        self.label_offset = offset
+        return self.meta['iris_label_num'] + offset
+
     def _load_img(self, info):
         img = Image.open(osp.join(self.dataset_path, info['norm']))
         img = self.transform(img)
 
-        label = torch.tensor(info['label'], dtype=torch.long)
+        label = torch.tensor(info['label'] + self.label_offset,
+                             dtype=torch.long)
         name = info['name']
 
         if name in self.dfs and self.weight is not None:
@@ -296,11 +305,41 @@ class EyePairDataset(data.Dataset):
         }
 
 
+# #############################################################################
+def get_eye_dataset(datasets, **kwargs):
+    if isinstance(datasets, str):
+        datasets = [datasets]
+
+    assert isinstance(datasets, (list, tuple, np.ndarray))
+
+    offset = 0
+    dataset_list = []
+    for dataset in datasets:
+        dataset_list.append(EyeDataset(dataset=dataset, **kwargs))
+        offset = dataset_list[-1].set_label_offset(offset)
+
+    if len(dataset_list) == 1:
+        return dataset_list[0], offset
+    else:
+        return ConcatDataset(dataset_list), offset
+
+
 if __name__ == "__main__":
     from tqdm import tqdm
     from torch.utils.data import DataLoader
-    data = EyePairDataset(mode='rtrain', dataset='LG4000', less_data=0.1)
+    # data = EyeDataset(mode='rtrain', dataset='LG4000', less_data=0.1)
+    data, num_class = get_eye_dataset(
+        ['LG4000', 'LG2200', 'distance', 'thousand'], mode='rtrain')
+    print(num_class, len(data))
+    data = DataLoader(
+        data,
+        32,
+        shuffle=True,
+        drop_last=True,
+    )
+    print(len(data))
 
     for x in data:
         # print(x['img'].shape, x['mask'].shape, x['ename'], x['dfs'])
-        print(x['img1'].shape, x['img2'].shape, x['img3'].shape)
+        # print(x['img1'].shape, x['img2'].shape, x['img3'].shape)
+        print(x['img'].shape, x['name'], x['label'])

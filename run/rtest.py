@@ -4,7 +4,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 
-from src.dataset import EyeDataset
+from src.dataset import EyeDataset, get_eye_dataset
 from src.rmodel import *
 from src.util import SummaryWriter
 from src.evaluation import r_evaluation, r_val_plot
@@ -14,11 +14,11 @@ from run.rtrain import set_r_model
 def test(config, checkpoint):
     # data
     # print('Loading Data')
-    test_dataset = checkpoint['cfg'][
+    test_dataset= checkpoint['cfg'][
         'dataset'] if config['dataset'] is None else config['dataset']
-    test_data = EyeDataset(dataset=test_dataset,
-                           mode='test',
-                           less_data=config['less_data'])
+    test_data, _ = get_eye_dataset(datasets=[test_dataset],
+                                   mode='val',
+                                   less_data=config['less_data'])
     test_data_loader = DataLoader(test_data,
                                   config['batchsize'],
                                   shuffle=False,
@@ -26,9 +26,9 @@ def test(config, checkpoint):
                                   pin_memory=False,
                                   num_workers=config['num_workers'])
     if config['warmup']:
-        warm_data = EyeDataset(
-            dataset=test_dataset,
-            mode='test',
+        warm_data, _ = get_eye_dataset(
+            datasets=[test_dataset],
+            mode='val',
             less_data=0.05,
         )
         warm_data_loader = DataLoader(warm_data,
@@ -82,7 +82,7 @@ def test(config, checkpoint):
 
     # write result
     if config['visible']:
-        dst_dir = os.path.join("log", 'test2', config['log_name'])
+        dst_dir = os.path.join("log", 'test', config['log_name'])
         log_writer = SummaryWriter(dst_dir)
         log_writer.add_text('cur_config', cp_config.__str__())
         log_writer.add_text('test_result', val_info)
@@ -90,12 +90,11 @@ def test(config, checkpoint):
         log_writer.add_hparams(
             {
                 'train':
-                cp_config['dataset'],
-                'model':
-                cp_config['r_model_name'],
+                str(cp_config['dataset']),
+                'model': (cp_config['r_model_name']),
                 'test':
-                config['dataset']
-                if config['dataset'] else cp_config['dataset'],
+                str(config['dataset'])
+                if str(config['dataset']) else str(cp_config['dataset']),
                 'lr':
                 cp_config['lr'],
                 'momentum':
@@ -108,10 +107,11 @@ def test(config, checkpoint):
                 cp_config['batchsize'],
                 'device':
                 str(cp_config['device'])
-            }, {
+            },
+            {
                 'eer': val_result['eer'],
                 'ch_index': val_result['ch_index'],
-                'pred_loss': val_result['pred_loss'],
+                # 'pred_loss': val_result['pred_loss'],
                 'speed': val_result['speed'],
                 'DI': val_result['DI'],
             })
